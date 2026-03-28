@@ -8,10 +8,13 @@ To add a new eval suite, add an entry to EVAL_SUITES.
 """
 
 import argparse
+import logging
 import os
 import sys
 import urllib.request
 import urllib.error
+
+logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 from dataclasses import dataclass, field
 from typing import Callable
 
@@ -25,7 +28,7 @@ load_dotenv()
 try:
     urllib.request.urlopen("http://localhost:6006/healthz", timeout=2)
 except (urllib.error.URLError, OSError):
-    print("ERROR: Phoenix is not running. Start it: bash start_phoenix.sh &")
+    logging.error("Phoenix is not running. Start it: bash start_phoenix.sh &")
     sys.exit(1)
 
 from phoenix.otel import register
@@ -168,7 +171,7 @@ def main():
 
     api_key = os.environ.get("OPENROUTER_API_KEY")
     if not api_key:
-        print("ERROR: OPENROUTER_API_KEY not set.")
+        logging.error("OPENROUTER_API_KEY not set.")
         sys.exit(1)
 
     suite = EVAL_SUITES[args.dataset]
@@ -182,12 +185,12 @@ def main():
             input_keys=suite.input_keys,
             output_keys=suite.output_keys,
         )
-        print(
+        logging.info(
             f"Created dataset '{suite.dataset_name}' with {len(suite.examples)} examples."
         )
     else:
         dataset = px_client.datasets.get_dataset(dataset=suite.dataset_name)
-        print(f"Using existing dataset '{suite.dataset_name}'.")
+        logging.info(f"Using existing dataset '{suite.dataset_name}'.")
 
     agent = make_agent(api_key)
 
@@ -196,11 +199,11 @@ def main():
         task=lambda input: task(input, agent),
         evaluators=suite.evaluators(api_key),
         experiment_name="weather-agent-eval",
-        concurrency=1,
+        concurrency=4,
     )
 
-    print(
-        f"\nResults: http://localhost:6006 → Datasets → {suite.dataset_name} → Experiments"
+    logging.info(
+        f"Results: http://localhost:6006 → Datasets → {suite.dataset_name} → Experiments"
     )
 
 

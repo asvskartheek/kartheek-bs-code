@@ -1,7 +1,10 @@
+import logging
 import os
 import sys
 import urllib.request
 import urllib.error
+
+logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 
 from dotenv import load_dotenv
 
@@ -61,7 +64,7 @@ def main():
 
     for message in result["messages"]:
         if hasattr(message, "content") and message.__class__.__name__ == "AIMessage":
-            print(message.content)
+            logging.info(message.content)
 
 
 if __name__ == "__main__":
