@@ -1,3 +1,27 @@
+"""Entry point for the kartheek-bs-code weather agent demo.
+
+This script performs three things before running any agent logic:
+
+1. **Phoenix health-check** — exits early with a helpful error message if the
+   Phoenix observability server is not reachable at ``http://localhost:6006``.
+   Start Phoenix with ``bash start_phoenix.sh &`` before running this script.
+
+2. **OpenTelemetry instrumentation** — registers a Phoenix tracer provider and
+   instruments all LangChain calls via
+   :class:`~openinference.instrumentation.langchain.LangChainInstrumentor`.
+   Every LLM call and tool invocation will appear as a span in the Phoenix UI.
+
+3. **Agent invocation** — creates the travel-assistant agent and sends a sample
+   weather query, logging the AI response to stdout.
+
+Usage::
+
+    uv run python main.py
+
+Environment variables:
+    OPENROUTER_API_KEY: Required.  Your OpenRouter API key (``sk-or-...``).
+"""
+
 import logging
 import os
 import sys
@@ -38,7 +62,18 @@ LangChainInstrumentor().instrument(tracer_provider=tracer_provider)
 from agent import make_agent
 
 
-def main():
+def main() -> None:
+    """Run a single weather query through the travel-assistant agent.
+
+    Reads ``OPENROUTER_API_KEY`` from the environment (or ``.env``), creates
+    an agent via :func:`~agent.make_agent`, invokes it with a hardcoded Tokyo
+    weather question, and logs the final AI response.
+
+    The function exits with code ``1`` if the API key is missing.
+
+    Raises:
+        SystemExit: With exit code ``1`` when ``OPENROUTER_API_KEY`` is unset.
+    """
     api_key = os.environ.get("OPENROUTER_API_KEY")
     if not api_key:
         _console.print(
