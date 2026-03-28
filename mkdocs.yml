@@ -1,0 +1,47 @@
+site_name: kartheek-bs-code
+site_description: A LangChain weather agent with Phoenix observability and automated evals
+site_url: https://asvskartheek.github.io/kartheek-bs-code/
+repo_url: https://github.com/asvskartheek/kartheek-bs-code
+repo_name: asvskartheek/kartheek-bs-code
+
+theme:
+  name: material
+  palette:
+    - scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.top
+    - search.highlight
+    - content.code.copy
+
+plugins:
+  - search
+  - mkdocstrings:
+      handlers:
+        python:
+          options:
+            docstring_style: google
+            show_source: true
+            show_root_heading: true
+            show_category_heading: true
+            members_order: source
+
+nav:
+  - Home: index.md
+  - Getting Started: getting-started.md
+  - API Reference:
+      - Agent: api/agent.md
+      - Main: api/main.md
+      - Evals: api/eval.md

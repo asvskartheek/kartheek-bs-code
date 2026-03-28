@@ -1,10 +1,29 @@
-"""
-Evals for the weather agent.
+"""Evaluation harness for the weather agent.
 
-Usage:  uv run python eval.py [--dataset dev-time-data]
+This module implements a Phoenix-native evaluation pipeline that measures how
+well the travel-assistant agent handles weather queries.  It uses Phoenix
+*Datasets* to store labelled examples and Phoenix *Experiments* to record
+task outputs and evaluator scores side-by-side.
 
-Each entry in EVAL_SUITES defines a dataset + its evaluators together.
-To add a new eval suite, add an entry to EVAL_SUITES.
+Usage::
+
+    uv run python eval.py [--dataset dev-time-data]
+
+Architecture
+------------
+Each entry in :data:`EVAL_SUITES` is an :class:`EvalSuite` that bundles:
+
+- A **dataset** of (question, expected_city) pairs uploaded to Phoenix.
+- A **task** function (:func:`task`) that runs the agent and extracts
+  structured output.
+- A list of **evaluators** — one code-based (:func:`tool_call_correctness`)
+  and one LLM-as-judge (:func:`make_no_followup_evaluator`) — that score each
+  task output.
+
+To add a new eval suite, append an entry to :data:`EVAL_SUITES`.
+
+Environment variables:
+    OPENROUTER_API_KEY: Required.  Your OpenRouter API key (``sk-or-...``).
 """
 
 import argparse
@@ -48,7 +67,37 @@ LangChainInstrumentor().instrument(tracer_provider=tracer_provider)
 
 
 # ── Task: runs the agent, returns structured output for evaluators ────────────
-def task(input, agent):
+def task(input: dict, agent) -> dict:
+    """Run the agent on a single dataset example and return structured output.
+
+    Invokes *agent* with the question from *input*, then walks the resulting
+    message list to extract:
+
+    - The first AI text response.
+    - The name of the first tool that was called (if any).
+    - The ``city`` argument that was passed to that tool call.
+
+    This structured output is consumed by the evaluators so they can assert on
+    tool-call correctness and response quality independently.
+
+    Args:
+        input: A dataset row dict that must contain a ``"question"`` key with
+            the user's natural-language weather question.
+        agent: A :func:`~agent.make_agent` DeepAgent instance.
+
+    Returns:
+        A dict with four keys:
+
+        ``question``
+            The original question string (passed through for evaluator context).
+        ``tool_called``
+            Name of the first tool invoked (e.g. ``"get_weather"``), or ``""``
+            if no tool was called.
+        ``city_arg``
+            The ``city`` argument passed to the tool, or ``""`` if unavailable.
+        ``response``
+            The first AI text response, or ``""`` if none was produced.
+    """
     result = agent.invoke(
         {"messages": [{"role": "user", "content": input["question"]}]}
     )
@@ -73,8 +122,26 @@ def task(input, agent):
 
 # ── Evaluators ────────────────────────────────────────────────────────────────
 @create_evaluator(name="tool-call-correctness", kind="CODE")
-def tool_call_correctness(output, expected):
-    """Did the agent call get_weather with the correct city?"""
+def tool_call_correctness(output: dict, expected: dict) -> EvaluationResult:
+    """Score whether the agent called ``get_weather`` with the correct city.
+
+    A code-based (deterministic) evaluator registered with Phoenix under the
+    name ``"tool-call-correctness"``.  Both the tool name **and** the city
+    argument must match for a passing score.
+
+    Args:
+        output: The dict returned by :func:`task`.  Must contain
+            ``"tool_called"`` and ``"city_arg"`` keys.
+        expected: The dataset row's expected output.  Must contain an
+            ``"expected_city"`` key (case-insensitive substring match).
+
+    Returns:
+        An :class:`~phoenix.experiments.types.EvaluationResult` with:
+
+        - ``score`` — ``1.0`` if correct, ``0.0`` otherwise.
+        - ``label`` — ``"correct"`` or ``"incorrect"``.
+        - ``explanation`` — a short string showing the actual vs. expected call.
+    """
     correct_tool = output.get("tool_called") == "get_weather"
     expected_city = expected.get("expected_city", "")
     correct_city = expected_city.lower() in output.get("city_arg", "").lower()
@@ -99,6 +166,27 @@ Then briefly explain why (1 sentence).
 
 
 def make_no_followup_evaluator(api_key: str):
+    """Create an LLM-as-judge evaluator that checks for follow-up questions.
+
+    Builds and returns a Phoenix evaluator function that uses ``gpt-4o-mini``
+    (via OpenRouter) to determine whether the agent's response directly answers
+    the user's question or instead asks a follow-up / clarifying question.
+
+    The returned evaluator is decorated with ``@create_evaluator`` and
+    registered in Phoenix under the name ``"no-followup-in-response"``.
+
+    Args:
+        api_key: A valid OpenRouter API key used to authenticate the judge LLM.
+
+    Returns:
+        A Phoenix-compatible evaluator callable that accepts a :func:`task`
+        output dict and returns an :class:`~phoenix.experiments.types.EvaluationResult`
+        with:
+
+        - ``score`` — ``1.0`` for a direct answer, ``0.0`` for a follow-up.
+        - ``label`` — ``"direct_answer"`` or ``"asks_follow_up"``.
+        - ``explanation`` — one-sentence rationale from the judge LLM.
+    """
     judge = OpenAI(api_key=api_key, base_url="https://openrouter.ai/api/v1")
 
     @create_evaluator(name="no-followup-in-response", kind="LLM")
@@ -134,6 +222,29 @@ def make_no_followup_evaluator(api_key: str):
 # ── Eval suites: dataset + evaluators defined together ────────────────────────
 @dataclass
 class EvalSuite:
+    """A self-contained evaluation suite bundling a dataset with its evaluators.
+
+    Each ``EvalSuite`` instance describes everything needed to run one
+    experiment in Phoenix: the dataset name, the labelled examples, which keys
+    are inputs vs. expected outputs, and a factory that returns the list of
+    evaluators to apply.
+
+    Attributes:
+        dataset_name: The name under which the dataset is stored (and looked
+            up) in Phoenix.  Must be unique within a Phoenix project.
+        examples: A list of dicts, each representing one labelled example.
+            Each dict must contain at least the keys named in *input_keys* and
+            *output_keys*.
+        input_keys: Column names from *examples* that Phoenix treats as the
+            agent's input (e.g. ``["question"]``).
+        output_keys: Column names from *examples* that Phoenix treats as the
+            expected output / ground-truth (e.g. ``["expected_city"]``).
+        evaluators: A callable that receives an OpenRouter API key and returns
+            a list of Phoenix evaluator functions.  Using a factory (rather
+            than a plain list) lets LLM-based evaluators initialise their own
+            OpenAI clients lazily.
+    """
+
     dataset_name: str
     examples: list
     input_keys: list
@@ -164,7 +275,25 @@ EVAL_SUITES: dict[str, EvalSuite] = {
 
 
 # ── Main ─────────────────────────────────────────────────────────────────────
-def main():
+def main() -> None:
+    """CLI entry point for running an evaluation suite against the weather agent.
+
+    Parses ``--dataset`` from the command line, creates or reuses the
+    corresponding Phoenix dataset, runs the experiment (agent + evaluators) at
+    concurrency 4, and prints a link to the results in the Phoenix UI.
+
+    Steps:
+
+    1. Resolve the :class:`EvalSuite` for the requested dataset name.
+    2. Connect to Phoenix via :class:`~phoenix.client.Client` and create the
+       dataset if it does not already exist.
+    3. Instantiate the agent with :func:`~agent.make_agent`.
+    4. Call :func:`~phoenix.experiments.run_experiment` with the task and
+       evaluator list from the suite.
+
+    Raises:
+        SystemExit: With exit code ``1`` when ``OPENROUTER_API_KEY`` is unset.
+    """
     parser = argparse.ArgumentParser()
     parser.add_argument("--dataset", default="dev-time-data", choices=list(EVAL_SUITES))
     args = parser.parse_args()
