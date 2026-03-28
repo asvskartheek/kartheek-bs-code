@@ -19,7 +19,7 @@ uv run python -c "
 import phoenix as px
 import time
 
-session = px.launch_app()
+session = px.launch_app(use_temp_dir=False)
 print(f'Phoenix UI: {session.url}')
 print('Press Ctrl+C to stop the server.')
 

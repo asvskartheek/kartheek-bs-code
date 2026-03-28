@@ -1,5 +1,4 @@
 import os
-import random
 import sys
 import urllib.request
 import urllib.error
@@ -14,7 +13,7 @@ _console = Console(stderr=True)
 
 # --- Phoenix startup check ---
 try:
-    urllib.request.urlopen("http://localhost:6006", timeout=2)
+    urllib.request.urlopen("http://localhost:6006/healthz", timeout=2)
 except (urllib.error.URLError, OSError):
     _console.print(
         "\n[bold red]ERROR: Phoenix observability server is not running![/bold red]\n"
@@ -27,31 +26,13 @@ except (urllib.error.URLError, OSError):
 from phoenix.otel import register
 from openinference.instrumentation.langchain import LangChainInstrumentor
 
-# Only instrument LangChain — it already captures OpenAI calls as child spans.
-# auto_instrument=True would also activate openinference-instrumentation-openai,
-# which creates duplicate orphaned ChatCompletion root traces.
 tracer_provider = register(
     project_name="kartheek-bs-code",
     endpoint="http://localhost:6006/v1/traces",
 )
 LangChainInstrumentor().instrument(tracer_provider=tracer_provider)
 
-from langchain_openai import ChatOpenAI
-
-from deepagents import create_deep_agent
-
-
-def get_weather(city: str) -> str:
-    """Get the current weather for a given city.
-
-    Args:
-        city: The name of the city to get weather for.
-    """
-    condition = random.choice(
-        ["Sunny", "Cloudy", "Rainy", "Foggy", "Snowy", "Windy", "Stormy"]
-    )
-    temperature = random.randint(-10, 40)
-    return f"{condition}, {temperature}°C in {city}."
+from agent import make_agent
 
 
 def main():
@@ -65,20 +46,7 @@ def main():
         )
         sys.exit(1)
 
-    llm = ChatOpenAI(
-        model="openai/gpt-5-mini",
-        base_url="https://openrouter.ai/api/v1",
-        api_key=api_key,
-    )
-
-    agent = create_deep_agent(
-        model=llm,
-        tools=[get_weather],
-        system_prompt=(
-            "You are a helpful travel assistant. "
-            "Use the available tools to answer questions about weather."
-        ),
-    )
+    agent = make_agent(api_key)
 
     result = agent.invoke(
         {
