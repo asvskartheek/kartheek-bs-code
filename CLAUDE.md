@@ -74,6 +74,19 @@ Then verify it's up at: http://localhost:6006
 
 Phoenix traces all LangChain/LLM calls. If Phoenix is not running, `main.py` will fail to export spans. Check `start_phoenix.py` for details.
 
+## Documentation (Pre-Review Gate)
+
+**RULE: Before any code is ready for human review, you MUST:**
+
+1. **Add detailed docstrings** to every new or modified module, function, class, and method using Google style. Include `Args:`, `Returns:`, `Raises:`, and a usage `Example::` where helpful.
+
+2. **Rebuild the MkDocs site** to verify the docs render without errors:
+   ```bash
+   uv run mkdocs build
+   ```
+
+These are not optional polish steps — they are a hard gate before review. Code without docstrings or with a broken docs build should not be submitted for review.
+
 ---
 
 ## Development Notes
