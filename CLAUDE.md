@@ -50,6 +50,17 @@ The canonical `.env` lives at `~/kartheek_bs_code/.env` (never committed). Each 
 ln -sf ~/kartheek_bs_code/.env .env
 ```
 
+### `pre-commit` hook across worktrees
+
+The `.git/hooks/pre-commit` script hardcodes an absolute path to the Python that installed it. If a new worktree runs `uv sync`, that worktree's venv becomes the active one — but the hook still points to wherever it was last installed from, causing `` `pre-commit` not found `` errors on commit.
+
+**RULE: After creating any new worktree, re-anchor the hook to the main worktree:**
+```bash
+cd ~/kartheek_bs_code && uv run pre-commit install
+```
+
+Never run `pre-commit install` from inside a worktree — always run it from the main worktree so the hook path stays stable.
+
 ## Observability (Phoenix Tracing)
 
 **RULE: Before writing any code or working on any task, the Phoenix observability server MUST be running.**
