@@ -1,10 +1,40 @@
 import os
 import random
 import sys
+import urllib.request
+import urllib.error
 
 from dotenv import load_dotenv
 
 load_dotenv()
+
+from rich.console import Console
+
+_console = Console(stderr=True)
+
+# --- Phoenix startup check ---
+try:
+    urllib.request.urlopen("http://localhost:6006", timeout=2)
+except (urllib.error.URLError, OSError):
+    _console.print(
+        "\n[bold red]ERROR: Phoenix observability server is not running![/bold red]\n"
+        "[red]Start it first:[/red] [yellow]uv run bash start_phoenix.sh &[/yellow]\n"
+        "[red]Then wait a few seconds and re-run this script.[/red]\n",
+        highlight=False,
+    )
+    sys.exit(1)
+
+from phoenix.otel import register
+from openinference.instrumentation.langchain import LangChainInstrumentor
+
+# Only instrument LangChain — it already captures OpenAI calls as child spans.
+# auto_instrument=True would also activate openinference-instrumentation-openai,
+# which creates duplicate orphaned ChatCompletion root traces.
+tracer_provider = register(
+    project_name="kartheek-bs-code",
+    endpoint="http://localhost:6006/v1/traces",
+)
+LangChainInstrumentor().instrument(tracer_provider=tracer_provider)
 
 from langchain_openai import ChatOpenAI
 
@@ -27,9 +57,12 @@ def get_weather(city: str) -> str:
 def main():
     api_key = os.environ.get("OPENROUTER_API_KEY")
     if not api_key:
-        print("Error: OPENROUTER_API_KEY is not set.")
-        print("Add it to a .env file or export it in your shell:")
-        print("  export OPENROUTER_API_KEY=sk-or-...")
+        _console.print(
+            "\n[bold red]ERROR: OPENROUTER_API_KEY is not set.[/bold red]\n"
+            "[red]Add it to a .env file or export it in your shell:[/red]\n"
+            "[yellow]  export OPENROUTER_API_KEY=sk-or-...[/yellow]\n",
+            highlight=False,
+        )
         sys.exit(1)
 
     llm = ChatOpenAI(
