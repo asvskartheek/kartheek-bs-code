@@ -74,17 +74,21 @@ def main() -> None:
     Raises:
         SystemExit: With exit code ``1`` when ``OPENROUTER_API_KEY`` is unset.
     """
-    api_key = os.environ.get("OPENROUTER_API_KEY")
-    if not api_key:
+    from pathlib import Path
+    import yaml
+
+    _cfg = yaml.safe_load((Path(__file__).parent / "config.yaml").read_text())
+    _agent_env = _cfg["models"][_cfg["agent_model"]]["api_key_env"]
+    if not os.environ.get(_agent_env):
         _console.print(
-            "\n[bold red]ERROR: OPENROUTER_API_KEY is not set.[/bold red]\n"
+            f"\n[bold red]ERROR: {_agent_env} is not set.[/bold red]\n"
             "[red]Add it to a .env file or export it in your shell:[/red]\n"
-            "[yellow]  export OPENROUTER_API_KEY=sk-or-...[/yellow]\n",
+            f"[yellow]  export {_agent_env}=sk-or-...[/yellow]\n",
             highlight=False,
         )
         sys.exit(1)
 
-    agent = make_agent(api_key)
+    agent = make_agent()
 
     result = agent.invoke(
         {

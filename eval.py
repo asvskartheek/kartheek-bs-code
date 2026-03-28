@@ -32,6 +32,12 @@ import os
 import sys
 import urllib.request
 import urllib.error
+from pathlib import Path
+
+import yaml
+
+_config = yaml.safe_load((Path(__file__).parent / "config.yaml").read_text())
+_judge_cfg = _config["models"][_config["judge_model"]]
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 from dataclasses import dataclass, field
@@ -165,18 +171,17 @@ Then briefly explain why (1 sentence).
 """
 
 
-def make_no_followup_evaluator(api_key: str):
+def make_no_followup_evaluator():
     """Create an LLM-as-judge evaluator that checks for follow-up questions.
 
-    Builds and returns a Phoenix evaluator function that uses ``gpt-4o-mini``
-    (via OpenRouter) to determine whether the agent's response directly answers
-    the user's question or instead asks a follow-up / clarifying question.
+    Reads judge model configuration from ``config.yaml`` (``judge_model`` key)
+    and loads the API key from the environment variable named by that model's
+    ``api_key_env`` field.  Returns a Phoenix evaluator that determines whether
+    the agent's response directly answers the user's question or instead asks a
+    follow-up / clarifying question.
 
     The returned evaluator is decorated with ``@create_evaluator`` and
     registered in Phoenix under the name ``"no-followup-in-response"``.
-
-    Args:
-        api_key: A valid OpenRouter API key used to authenticate the judge LLM.
 
     Returns:
         A Phoenix-compatible evaluator callable that accepts a :func:`task`
@@ -187,13 +192,16 @@ def make_no_followup_evaluator(api_key: str):
         - ``label`` — ``"direct_answer"`` or ``"asks_follow_up"``.
         - ``explanation`` — one-sentence rationale from the judge LLM.
     """
-    judge = OpenAI(api_key=api_key, base_url="https://openrouter.ai/api/v1")
+    judge = OpenAI(
+        api_key=os.environ[_judge_cfg["api_key_env"]],
+        base_url=_judge_cfg["base_url"],
+    )
 
     @create_evaluator(name="no-followup-in-response", kind="LLM")
     def no_followup_in_response(output):
         """Does the response answer directly without asking follow-up questions?"""
         resp = judge.chat.completions.create(
-            model="openai/gpt-4o-mini",
+            model=_judge_cfg["model"],
             temperature=0.0,
             messages=[
                 {
@@ -249,8 +257,8 @@ class EvalSuite:
     examples: list
     input_keys: list
     output_keys: list
-    # Returns evaluator list; receives api_key so LLM evaluators can init their clients
-    evaluators: Callable[[str], list] = field(repr=False)
+    # Returns evaluator list; LLM evaluators load their API keys from the environment
+    evaluators: Callable[[], list] = field(repr=False)
 
 
 EVAL_SUITES: dict[str, EvalSuite] = {
@@ -266,9 +274,9 @@ EVAL_SUITES: dict[str, EvalSuite] = {
         ],
         input_keys=["question"],
         output_keys=["expected_city"],
-        evaluators=lambda api_key: [
+        evaluators=lambda: [
             tool_call_correctness,
-            make_no_followup_evaluator(api_key),
+            make_no_followup_evaluator(),
         ],
     ),
 }
@@ -298,11 +306,6 @@ def main() -> None:
     parser.add_argument("--dataset", default="dev-time-data", choices=list(EVAL_SUITES))
     args = parser.parse_args()
 
-    api_key = os.environ.get("OPENROUTER_API_KEY")
-    if not api_key:
-        logging.error("OPENROUTER_API_KEY not set.")
-        sys.exit(1)
-
     suite = EVAL_SUITES[args.dataset]
     px_client = Client()
 
@@ -321,12 +324,12 @@ def main() -> None:
         dataset = px_client.datasets.get_dataset(dataset=suite.dataset_name)
         logging.info(f"Using existing dataset '{suite.dataset_name}'.")
 
-    agent = make_agent(api_key)
+    agent = make_agent()
 
     run_experiment(
         dataset=dataset,
         task=lambda input: task(input, agent),
-        evaluators=suite.evaluators(api_key),
+        evaluators=suite.evaluators(),
         experiment_name="weather-agent-eval",
         concurrency=4,
     )

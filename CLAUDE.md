@@ -65,14 +65,34 @@ Never run `pre-commit install` from inside a worktree — always run it from the
 
 **RULE: Before writing any code or working on any task, the Phoenix observability server MUST be running.**
 
+**RULE: Phoenix MUST always be started from the main worktree (`~/kartheek_bs_code`), never from inside a worktree.**
+
 Start Phoenix first:
 ```bash
-bash start_phoenix.sh &
+cd ~/kartheek_bs_code && bash start_phoenix.sh &
 ```
 
-Then verify it's up at: http://localhost:6006
+Then verify the UI is up (not just the healthcheck) at: http://localhost:6006
 
-Phoenix traces all LangChain/LLM calls. If Phoenix is not running, `main.py` will fail to export spans. Check `start_phoenix.py` for details.
+### Why the main worktree only
+
+Each worktree has its own `.venv` and may have a different version of `arize-phoenix` installed. If Phoenix is started from a worktree venv, it may be a different version than the one the current worktree's code sends traces to. This causes the Phoenix UI to return **Internal Server Error** on every page — even though `/healthz` still returns `OK` (the healthcheck does not catch version mismatches).
+
+### Diagnosing a stale/wrong-worktree Phoenix process
+
+If you see Internal Server Error in the Phoenix UI:
+
+```bash
+# 1. Find the offending process
+ps aux | grep phoenix | grep -v grep
+
+# 2. Check which worktree it came from (look for /worktrees/<id>/ in the path)
+# 3. Kill it and restart from the main worktree
+kill <PID>
+cd ~/kartheek_bs_code && bash start_phoenix.sh &
+```
+
+Phoenix traces all LangChain/LLM calls. If Phoenix is not running, `main.py` will fail to export spans.
 
 ## Documentation (Pre-Review Gate)
 

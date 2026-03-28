@@ -12,9 +12,16 @@ Example::
     result = agent.invoke({"messages": [{"role": "user", "content": "Weather in Paris?"}]})
 """
 
+import os
 import random
+from pathlib import Path
+
+import yaml
 from langchain_openai import ChatOpenAI
 from deepagents import create_deep_agent
+
+_config = yaml.safe_load((Path(__file__).parent / "config.yaml").read_text())
+_agent_cfg = _config["models"][_config["agent_model"]]
 
 
 def get_weather(city: str) -> str:
@@ -44,17 +51,15 @@ def get_weather(city: str) -> str:
     return f"{condition}, {temperature}°C in {city}."
 
 
-def make_agent(api_key: str):
+def make_agent():
     """Create and return a travel-assistant DeepAgent with weather tool access.
 
-    Instantiates a :class:`~langchain_openai.ChatOpenAI` model pointed at the
-    OpenRouter gateway, then wraps it in a ``DeepAgent`` that has access to
-    :func:`get_weather`.  The system prompt instructs the agent to answer
-    weather-related travel questions using the tool rather than hallucinating.
-
-    Args:
-        api_key: A valid OpenRouter API key (``sk-or-...``).  Passed directly
-            to the underlying LLM client; never logged or stored.
+    Reads model configuration from ``config.yaml`` (``agent_model`` key) and
+    loads the API key from the environment variable named by that model's
+    ``api_key_env`` field.  Instantiates a
+    :class:`~langchain_openai.ChatOpenAI` model pointed at the configured
+    gateway, then wraps it in a ``DeepAgent`` that has access to
+    :func:`get_weather`.
 
     Returns:
         A ``DeepAgent`` instance ready to be invoked with a LangChain-style
@@ -63,13 +68,14 @@ def make_agent(api_key: str):
             agent.invoke({"messages": [{"role": "user", "content": "..."}]})
 
     Raises:
-        :class:`~langchain_openai.AuthenticationError`: If *api_key* is invalid
-            and the first LLM call is attempted.
+        KeyError: If the environment variable named by ``api_key_env`` is unset.
+        :class:`~langchain_openai.AuthenticationError`: If the API key is
+            invalid and the first LLM call is attempted.
     """
     llm = ChatOpenAI(
-        model="openai/gpt-4o-mini",
-        base_url="https://openrouter.ai/api/v1",
-        api_key=api_key,
+        model=_agent_cfg["model"],
+        base_url=_agent_cfg["base_url"],
+        api_key=os.environ[_agent_cfg["api_key_env"]],
     )
     return create_deep_agent(
         model=llm,

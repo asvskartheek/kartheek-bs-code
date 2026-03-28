@@ -1,0 +1,12 @@
+models:
+  openrouter_4o_mini:
+    model: openai/gpt-4o-mini
+    base_url: https://openrouter.ai/api/v1
+    api_key_env: OPENROUTER_API_KEY
+  openrouter_5_mini:
+    model: openai/gpt-4.1-mini
+    base_url: https://openrouter.ai/api/v1
+    api_key_env: OPENROUTER_API_KEY
+
+agent_model: openrouter_4o_mini
+judge_model: openrouter_4o_mini
